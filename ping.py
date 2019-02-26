@@ -31,6 +31,7 @@ GET_COMMAND_KEYWORD = "get"
 QUIT_COMMAND_KEYWORD = "quit"
 
 PAYLOAD_SIZE = 512
+MAX_NUMBER_OF_CHUNKS_PER_FILE = 10
 
 
 
@@ -43,14 +44,11 @@ class Return_home_request:
 	def is_expired(self):
 		return int(time.time()) - self.request_time > HOME_RETURN_REQUEST_TIMEOUT
 
-# class Download_request:
-# 	def __init__(self, file_name, ):
-# 		self.number_of_caught_packets = 0
-# 		self.file_name = file_name
-# 		self.rec_payloads = []
-
-# 	def is_expired(self):
-# 		return int(time.time()) - self.request_time > HOME_RETURN_REQUEST_TIMEOUT
+class Download_request:
+	def __init__(self, file_name, ):
+		self.number_of_caught_packets = 0
+		self.file_name = file_name
+		self.received_payloads = [''] * MAX_NUMBER_OF_CHUNKS_PER_FILE
 
 
 
@@ -242,6 +240,7 @@ class Ping(object):
 	#--------------------------------------------------------------------------
 
 	def download_file(self, file_name):
+		self.downloading_files.append(Download_request(file_name))
 		# TODO: add given file to waiting queue
 		for i in range(1, HOST_COUNT + 1):
 			dest_ip = "10.0.0." + str(i)
@@ -252,12 +251,13 @@ class Ping(object):
 			payload = self.generate_return_home_payload(file_name)
 			# print(payload)
 			Ping.send_one_ping(current_socket, self.ip, dest_ip, 0, payload)
-			# print("# send retHome to " + dest_ip)
+			print("# send retHome to " + dest_ip)
 			current_socket.close()
 
 	def upload_file(filename):
-		with open(filename, "r") as file:
-			payload = file.read(PAYLOAD_SIZE)
+		pass
+		# with open(filename, "r") as file:
+		# 	payload = file.read(PAYLOAD_SIZE)
 
 	#--------------------------------------------------------------------------
 
@@ -273,11 +273,17 @@ class Ping(object):
 		if not obj_added:
 			self.ret_home_requests.append(req_obj)
 
-	def check_if_data_requested(self, src_ip, file_name):
-		# TODO: should only check file_name or pair or file_name and ip?
+	def check_if_data_requested(self, file_name):
 		for req_obj in self.ret_home_requests:
-			if req_obj.src_ip == src_ip and req_obj.file_name == file_name:
+			# if req_obj.src_ip == src_ip and req_obj.file_name == file_name:
+			if req_obj.file_name == file_name:
 				return req_obj
+		return None
+
+	def check_if_data_is_collected(self, file_name):
+		for downloading_obj in self.downloading_files:
+			if downloading_obj.file_name == file_name:
+				return downloading_obj
 		return None
 
 	#--------------------------------------------------------------------------
@@ -304,21 +310,30 @@ class Ping(object):
 	def do(self):
 		current_socket = self.get_socket()
 		getPacket, icmp_header, payload = self.receive_one_ping(current_socket)
+		# if getPacket:
+		# 	parsed_payload = payload.split(PAYLOAD_DELIMITER)
+		# 	if parsed_payload[0] == HOME_RETURN_PAYLOAD_KEYWORD:
+		# 		self.add_to_return_home_requests(
+		# 			src_ip=parsed_payload[1],
+		# 			filename=parsed_payload[2]
+		# 		)
+		# 		print("recieved home return.")
+		# 	elif parsed_payload[0] == DATA_PAYLOAD_KEYWORD:
+		# 		req_obj = self.check_if_data_requested(parsed_payload[2])
+		# 		if req_obj:
+		# 			Ping.send_one_ping(current_socket, req_obj.src_ip, self.ip,
+		# 					icmp_header["packet_id"], payload)
+		# 			print("send packet to home.")
+					
+		# 		else:
+		# 			downloading_obj = self.check_if_data_is_collected(parsed_payload[2])
+		# 			if downloading_obj:
+		# 				print("collecting packet.")
+		# 			else:
+		# 				self.resend_ICMP(current_socket, icmp_header, payload)
 		if getPacket:
-			parsed_payload = payload.split(PAYLOAD_DELIMITER)
-			if parsed_payload[0] == HOME_RETURN_PAYLOAD_KEYWORD:
-				self.add_to_return_home_requests(
-					src_ip=parsed_payload[1],
-					filename=parsed_payload[2]
-				)
-				print("recieved home return.")
-			else:
-				req_obj = self.check_if_data_requested(parsed_payload[1], parsed_payload[2])
-				if req_obj is None:
-					self.resend_ICMP(current_socket, icmp_header, payload)
-				else:
-					Ping.send_one_ping(current_socket, self.ip, req_obj.src_ip,
-							icmp_header["packet_id"], payload)
+			self.resend_ICMP(current_socket, icmp_header, payload)
+					
 				
 		current_socket.close()
 
@@ -386,10 +401,11 @@ class Ping(object):
 		while True: # Loop while waiting for packet or timeout
 			select_start = default_timer()
 			inputready, outputready, exceptready = select.select([current_socket], [], [], timeout)
+			
 			select_duration = (default_timer() - select_start)
 			if inputready == []: # timeout
 				return False, None, None
-
+			
 
 			packet_data, address = current_socket.recvfrom(ICMP_MAX_RECV)
 
@@ -419,7 +435,7 @@ class Ping(object):
 				packet_size = len(packet_data) - 28
 				ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
 				# XXX: Why not ip = address[0] ???
-				print "## Packet recevied."
+				# print "## Packet recevied."
 				return True, icmp_header, packet_data[28:]
 
 			timeout = timeout - select_duration
