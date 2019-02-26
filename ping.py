@@ -19,6 +19,10 @@ from impacket import ImpactPacket
 from random import randint
 
 HOST_COUNT = 4
+HOME_RETURN_COMMAND_KEYWORD = "home"
+SEND_COMMAND_KEYWORD = "get"
+GET_COMMAND_KEYWORD = "send"
+QUIT_COMMAND_KEYWORD = "quit"
 
 
 
@@ -113,11 +117,7 @@ class Ping(object):
 	#--------------------------------------------------------------------------
 
 	def print_start(self):
-		msg = "\nPYTHON-PING %s (%s): %d data bytes" % (self.destination, self.dest_ip, self.packet_size)
-		if self.quiet_output:
-			self.response.output.append(msg)
-		else:
-			print(msg)
+		print("# Starting Network-Drive Node.")
 
 	def print_unknown_host(self, e):
 		msg = "\nPYTHON-PING: Unknown host: %s (%s)\n" % (self.destination, e.args[1])
@@ -130,66 +130,8 @@ class Ping(object):
 		raise Exception, "unknown_host"
 		#sys.exit(-1)
 
-	def print_success(self, delay, ip, packet_size, ip_header, icmp_header, header=False):
-		if ip == self.destination:
-			from_info = ip
-		else:
-			from_info = "%s (%s)" % (self.destination, ip)
-
-	   	msg = "%d bytes from %s: icmp_seq=%d ttl=%d time=%.1f ms" % (packet_size, from_info, icmp_header["seq_number"], ip_header["ttl"], delay)
-
-		if self.quiet_output:
-			self.response.output.append(msg)
-			self.response.ret_code = 0
-		else:
-			print(msg)
-		if header:
-			print("IP header: %r" % ip_header)
-			print("ICMP header: %r" % icmp_header)
-
-	def print_failed(self):
-		msg = "Request timed out."
-
-		if self.quiet_output:
-			self.response.output.append(msg)
-			self.response.ret_code = 1
-		else:
-			print(msg)
-
 	def print_exit(self):
-		msg = "\n----%s PYTHON PING Statistics----" % (self.destination)
-
-		if self.quiet_output:
-			self.response.output.append(msg)
-		else:
-			print(msg)
-
-		lost_count = self.send_count - self.receive_count
-		#print("%i packets lost" % lost_count)
-		lost_rate = float(lost_count) / self.send_count * 100.0
-
-		msg = "%d packets transmitted, %d packets received, %0.1f%% packet loss" % (self.send_count, self.receive_count, lost_rate)
-	
-		if self.quiet_output:
-			self.response.output.append(msg)
-			self.response.packet_lost = lost_count
-		else:
-			print(msg)
-
-		if self.receive_count > 0:
-			msg = "round-trip (ms)  min/avg/max = %0.3f/%0.3f/%0.3f" % (self.min_time, self.total_time / self.receive_count, self.max_time)
-			if self.quiet_output:
-				self.response.min_rtt = '%.3f' % self.min_time
-				self.response.avg_rtt = '%.3f' % (self.total_time / self.receive_count)
-				self.response.max_rtt = '%.3f' % self.max_time
-				self.response.output.append(msg)
-			else:
-				print(msg)
-
-		if self.quiet_output:
-			self.response.output.append('\n')
-		else:
-			print('')
+		print("# Shutting down Network-Drive Node.")
 
 	#--------------------------------------------------------------------------
 
@@ -223,24 +165,7 @@ class Ping(object):
 
 	#--------------------------------------------------------------------------
 
-	def run(self, count=None, deadline=None):
-		"""
-		send and receive pings in a loop. Stop if count or until deadline.
-		"""
-		if not self.quiet_output:
-			self.setup_signal_handler()
-
-		while True:
-			if select.select([sys.stdin,],[],[],0.0)[0]:
-				command = raw_input().split(' ')
-				# if command[0] ==
-				
-			delay = self.do()
-
-	def do(self):
-		
-		# Send one ICMP ECHO_REQUEST and receive the response until self.timeout
-		
+	def get_socket(self):
 		try: 
 			current_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
 			current_socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
@@ -260,8 +185,40 @@ class Ping(object):
 				)
 				raise etype, evalue, etb
 			raise # raise the original error
+		
+		return current_socket
 
-		self.receive_one_ping(current_socket)
+	#--------------------------------------------------------------------------
+
+	def run(self, count=None, deadline=None):
+		"""
+		send and receive pings in a loop. Stop if count or until deadline.
+		"""
+		if not self.quiet_output:
+			self.setup_signal_handler()
+
+		while True:
+			if select.select([sys.stdin,],[],[],0.0)[0]:
+				command = raw_input().split(' ')
+				if command[0] == HOME_RETURN_COMMAND_KEYWORD:
+					pass
+				elif command[0] == SEND_COMMAND_KEYWORD:
+					pass
+				elif command[0] == GET_COMMAND_KEYWORD:
+					pass
+				elif command[0] == QUIT_COMMAND_KEYWORD:
+					break
+				
+			delay = self.do()
+
+	def do(self):
+		current_socket = self.get_socket()
+		getPacket, icmp_header, payload = self.receive_one_ping(current_socket)
+		if getPacket:
+			# TODO: if given ICMP is requested by RETURN_HOME, send it to given ip
+			# TODO: if given ICMP is  RETURN_HOME type, store data in self.
+			self.resend_ICMP(current_socket, icmp_header, payload)
+		current_socket.close()
 
 
 	# send an ICMP ECHO_REQUEST packet
@@ -321,8 +278,7 @@ class Ping(object):
 			inputready, outputready, exceptready = select.select([current_socket], [], [], timeout)
 			select_duration = (default_timer() - select_start)
 			if inputready == []: # timeout
-				# return None, 0, 0, 0, 0
-				return
+				return False, None, None
 
 
 			packet_data, address = current_socket.recvfrom(ICMP_MAX_RECV)
@@ -354,18 +310,15 @@ class Ping(object):
 				ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
 				# XXX: Why not ip = address[0] ???
 				print "## Packet recevied."
-				send_time = self.resend_ICMP(current_socket, icmp_header, packet_data[28:])
-				return
+				return True, icmp_header, packet_data[28:]
 
 			timeout = timeout - select_duration
 			if timeout <= 0:
-				return
+				return False, None, None
 
 def ping(source, hostname, timeout=1000, count=3, packet_size=55, *args, **kwargs):
 	p = Ping(source, hostname, timeout, packet_size, *args, **kwargs)
 	return p.run(count)
 
-# ping(Your IP Address, Destination IP Address)    #put your IP and destination IP address as the ping function argument and run the code. you can ping 
-												 #the destination with your own code!!!
 ping("10.0.0.1", "10.0.0.2")
 
