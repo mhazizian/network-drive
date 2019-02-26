@@ -250,7 +250,7 @@ class Ping(object):
 			current_socket = self.get_socket()
 			payload = self.generate_return_home_payload(file_name)
 			# print(payload)
-			Ping.send_one_ping(current_socket, self.ip, dest_ip, 0, payload)
+			Ping.send_one_ping(current_socket, dest_ip, self.ip, 0, payload)
 			print("# send retHome to " + dest_ip)
 			current_socket.close()
 
@@ -310,31 +310,27 @@ class Ping(object):
 	def do(self):
 		current_socket = self.get_socket()
 		getPacket, icmp_header, payload = self.receive_one_ping(current_socket)
-		# if getPacket:
-		# 	parsed_payload = payload.split(PAYLOAD_DELIMITER)
-		# 	if parsed_payload[0] == HOME_RETURN_PAYLOAD_KEYWORD:
-		# 		self.add_to_return_home_requests(
-		# 			src_ip=parsed_payload[1],
-		# 			filename=parsed_payload[2]
-		# 		)
-		# 		print("recieved home return.")
-		# 	elif parsed_payload[0] == DATA_PAYLOAD_KEYWORD:
-		# 		req_obj = self.check_if_data_requested(parsed_payload[2])
-		# 		if req_obj:
-		# 			Ping.send_one_ping(current_socket, req_obj.src_ip, self.ip,
-		# 					icmp_header["packet_id"], payload)
-		# 			print("send packet to home.")
-					
-		# 		else:
-		# 			downloading_obj = self.check_if_data_is_collected(parsed_payload[2])
-		# 			if downloading_obj:
-		# 				print("collecting packet.")
-		# 			else:
-		# 				self.resend_ICMP(current_socket, icmp_header, payload)
 		if getPacket:
-			self.resend_ICMP(current_socket, icmp_header, payload)
+			parsed_payload = payload.split(PAYLOAD_DELIMITER)
+			if parsed_payload[0] == HOME_RETURN_PAYLOAD_KEYWORD:
+				self.add_to_return_home_requests(
+					src_ip=parsed_payload[1],
+					filename=parsed_payload[2]
+				)
+				print("recieved home return.")
+			elif parsed_payload[0] == DATA_PAYLOAD_KEYWORD:
+				downloading_obj = self.check_if_data_is_collected(parsed_payload[2])
+				if downloading_obj:
+						print("collecting packet.")
+				else:
+					req_obj = self.check_if_data_requested(parsed_payload[2])
+					if req_obj:
+						Ping.send_one_ping(current_socket, req_obj.src_ip, self.ip,
+								icmp_header["packet_id"], payload)
+						print("send packet to home.")
 					
-				
+					else:
+						self.resend_ICMP(current_socket, icmp_header, payload)
 		current_socket.close()
 
 
@@ -387,7 +383,7 @@ class Ping(object):
 		while (src == dst):
 			src = "10.0.0." + str(randint(1, HOST_COUNT))
 
-		print "resenging: " + src + "->" + dst
+		# print "resending: " + src + "->" + dst
 		send_time = Ping.send_one_ping(current_socket, src, dst, icmp_header["packet_id"], payload)
 		return send_time
 		
