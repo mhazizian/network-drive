@@ -237,23 +237,6 @@ class Ping(object):
 				
 			delay = self.do()
 
-			# self.seq_number += 1
-			# if count and self.seq_number >= count:
-			# 	break
-			# if deadline and self.total_time >= deadline:
-			# 	break
-
-			# if delay == None:
-			# 	delay = 0
-
-			# # Pause for the remainder of the MAX_SLEEP period (if applicable)
-			# if (MAX_SLEEP > delay):
-			# 	time.sleep((MAX_SLEEP - delay) / 1000.0)
-
-		self.print_exit()
-		if self.quiet_output:
-			return self.response
-
 	def do(self):
 		
 		# Send one ICMP ECHO_REQUEST and receive the response until self.timeout
@@ -278,38 +261,13 @@ class Ping(object):
 				raise etype, evalue, etb
 			raise # raise the original error
 
-		# send_time = self.send_one_ping(current_socket)
-		# if send_time == None:
-		# 	return
-		# self.send_count += 1
-
-		receive_time, packet_size, ip, ip_header, icmp_header = self.receive_one_ping(current_socket)
-		# current_socket.close()
-		if receive_time:
-		# 	self.receive_count += 1
-		# 	delay = (receive_time - send_time) * 1000.0
-		# 	self.total_time += delay
-		# 	if self.min_time > delay:
-		# 		self.min_time = delay
-		# 	if self.max_time < delay:
-		# 		self.max_time = delay
-
-			self.print_success(17, ip, packet_size, ip_header, icmp_header)
-			return 17
-		else:
-			self.print_failed()
+		self.receive_one_ping(current_socket)
 
 
 	# send an ICMP ECHO_REQUEST packet
-	# def send_one_ping(self, current_socket):
-	def send_one_ping(self, current_socket, icmp_header, payload):
+	def send_one_ping(self, current_socket, src, dst, icmp_packet_id, payload):
 		
 		#Create a new IP packet and set its source and destination IP addresses
-		# src = self.source
-		# dst = self.destination
-		src = "10.0.0." + str(randint(1, HOST_COUNT))
-		dst = "10.0.0." + str(randint(1, HOST_COUNT))
-		print "src ip:" + src + "# dst ip : " + dst
 		ip = ImpactPacket.IP()
 		ip.set_ip_src(src)
 		ip.set_ip_dst(dst)	
@@ -320,16 +278,13 @@ class Ping(object):
 
 		#inlude a small payload inside the ICMP packet
 		#and have the ip packet contain the ICMP packet
-		# icmp.contains(ImpactPacket.Data("payload"))
 		icmp.contains(ImpactPacket.Data(payload))
-		# TODO: complete testData
 		ip.contains(icmp)
 
 
 		#give the ICMP packet some ID
-		icmp.set_icmp_id(icmp_header["packet_id"])
-		# TODO: check id out :D
-		
+		icmp.set_icmp_id(icmp_packet_id)
+
 		#set the ICMP packet checksum
 		icmp.set_icmp_cksum(0)
 		icmp.auto_checksum = 1
@@ -346,6 +301,14 @@ class Ping(object):
 
 		return send_time
 
+
+	def resend_ICMP(self, current_socket, icmp_header, payload):
+		src = "10.0.0." + str(randint(1, HOST_COUNT))
+		dst = "10.0.0." + str(randint(1, HOST_COUNT))
+		print "resenging: " + src + "->" + dst
+		send_time = self.send_one_ping(current_socket, src, dst, icmp_header["packet_id"], payload)
+		return send_time
+		
 	# Receive the ping from the socket. 
 	#timeout = in ms		
 
@@ -358,7 +321,8 @@ class Ping(object):
 			inputready, outputready, exceptready = select.select([current_socket], [], [], timeout)
 			select_duration = (default_timer() - select_start)
 			if inputready == []: # timeout
-				return None, 0, 0, 0, 0
+				# return None, 0, 0, 0, 0
+				return
 
 
 			packet_data, address = current_socket.recvfrom(ICMP_MAX_RECV)
@@ -389,15 +353,13 @@ class Ping(object):
 				packet_size = len(packet_data) - 28
 				ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
 				# XXX: Why not ip = address[0] ???
-				print "Packet recevied :))"
-				send_time = self.send_one_ping(current_socket, icmp_header, packet_data[28:])
-				if send_time == None:
-					return
-				return receive_time, packet_size, ip, ip_header, icmp_header
+				print "## Packet recevied."
+				send_time = self.resend_ICMP(current_socket, icmp_header, packet_data[28:])
+				return
 
 			timeout = timeout - select_duration
 			if timeout <= 0:
-				return None, 0, 0, 0, 0
+				return
 
 def ping(source, hostname, timeout=1000, count=3, packet_size=55, *args, **kwargs):
 	p = Ping(source, hostname, timeout, packet_size, *args, **kwargs)
