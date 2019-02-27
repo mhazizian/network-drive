@@ -1,12 +1,3 @@
-
-"""
-	A pure python ping implementation using raw sockets.
-
-	Note that ICMP messages can only be send from processes running as root
-	
-"""
-
-
 import os
 import select
 import signal
@@ -21,7 +12,7 @@ import threading
 
 HOST_COUNT = 4
 HOME_RETURN_PAYLOAD_KEYWORD = "RET_HOME"
-HOME_RETURN_REQUEST_TIMEOUT = 10
+HOME_RETURN_REQUEST_TIMEOUT = 10 #seconds
 
 DATA_PAYLOAD_KEYWORD = "DATA"
 PAYLOAD_DELIMITER = "|"
@@ -36,6 +27,14 @@ REQUEST_TYPE = 8
 PAYLOAD_SIZE = 1
 MAX_NUMBER_OF_CHUNKS_PER_FILE = 100
 SEND_DELAY_TIME = 0.05
+
+if sys.platform.startswith("win32"):
+	# On Windows, the best timer is time.clock()
+	default_timer = time.clock
+else:
+	# On most other platforms the best timer is time.time()
+	default_timer = time.time
+
 
 class Return_home_request:
 	def __init__(self, src_ip, file_name):
@@ -58,13 +57,6 @@ class Packet_data:
 		self.src_ip = src_ip
 		self.file_name = file_name
 		self.total_chunks = totoal_chunks
-
-if sys.platform.startswith("win32"):
-	# On Windows, the best timer is time.clock()
-	default_timer = time.clock
-else:
-	# On most other platforms the best timer is time.time()
-	default_timer = time.time
 
 
 # ICMP parameters
@@ -97,80 +89,20 @@ def to_ip(addr):
 		return addr
 	return socket.gethostbyname(addr)
 
-
-class Response(object):
+class Network_drive(object):
 	def __init__(self):
-		self.max_rtt = None
-		self.min_rtt = None
-		self.avg_rtt = None
-		self.packet_lost = None
-		self.ret_code = None
-		self.output = []
-
-		self.packet_size = None
-		self.timeout = None
-		self.source = None
-		self.destination = None
-		self.destination_ip = None
-
-class Ping(object):
-	def __init__(self, source, destination, timeout=1000, packet_size=55, own_id=None, quiet_output=False, udp=False, bind=None):
 		self.ip = get_my_ip()
 		self.ret_home_requests = []
 		self.downloading_files = []
 		self.packet = None
 
-		self.quiet_output = quiet_output
-		if quiet_output:
-			self.response = Response()
-			self.response.destination = destination
-			self.response.timeout = timeout
-			self.response.packet_size = packet_size
-
-		self.destination = destination
-		self.source = source
-		self.timeout = timeout
-		self.packet_size = packet_size
-		self.udp = udp
-		self.bind = bind
-
-		if own_id is None:
-			self.own_id = os.getpid() & 0xFFFF
-		else:
-			self.own_id = own_id
-
-		try:
-			self.dest_ip = to_ip(self.destination)
-			if quiet_output:
-				self.response.destination_ip = self.dest_ip
-		except socket.gaierror as e:
-			self.print_unknown_host(e)
-		else:
-			self.print_start()
-
-		self.seq_number = 0
-		self.send_count = 0
-		self.receive_count = 0
-		self.min_time = 999999999
-		self.max_time = 0.0
-		self.total_time = 0.0
+		self.print_start()
 
 	#--------------------------------------------------------------------------
 
 	def print_start(self):
 		print("# Starting Network-Drive Node.")
 		print("# Node ip: " + self.ip)
-
-	def print_unknown_host(self, e):
-		msg = "\nPYTHON-PING: Unknown host: %s (%s)\n" % (self.destination, e.args[1])
-		if self.quiet_output:
-			self.response.output.append(msg)
-			self.response.ret_code = 1
-		else:
-			print(msg)
-
-		raise Exception, "unknown_host"
-		#sys.exit(-1)
 
 	def print_exit(self):
 		print("# Shutting down Network-Drive Node.")
@@ -184,11 +116,7 @@ class Ping(object):
 		self.print_exit()
 		msg = "\n(Terminated with signal %d)\n" % (signum)
 
-		if self.quiet_output:
-			self.response.output.append(msg)
-			self.response.ret_code = 0
-		else:
-			print(msg)
+		print(msg)
 
 		sys.exit(0)
 
@@ -218,18 +146,12 @@ class Ping(object):
 
 		return src, dst
 			
-
 	#--------------------------------------------------------------------------
 
 	def get_socket(self):
 		try: 
 			current_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
 			current_socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
-
-			# Bind the socket to a source address
-			if self.bind:
-				print('self.bind: ', self.bind)
-				current_socket.bind((self.bind, 0)) # Port number is irrelevant for ICMP
 
 		except socket.error, (errno, msg):
 			if errno == 1:
@@ -270,7 +192,6 @@ class Ping(object):
 	#--------------------------------------------------------------------------
 
 	def collect_packet(self, downloading_obj, payload, icmp_id):
-		print "@ totoal_chunks: " + str(self.packet.total_chunks)
 		if downloading_obj.received_payloads[int(icmp_id)] is not None:
 			idx = payload.find(PAYLOAD_DATA_BEGIN)
 			data = payload[idx + 1:]
@@ -294,8 +215,6 @@ class Ping(object):
 		worker = threading.Thread(target=self.send_return_home_requests, args=(file_name, ))
 		worker.start()
 
-		
-
 	def upload_file(self, filename):
 		icmp_id = 0
 		file_size = os.path.getsize(filename)
@@ -311,13 +230,11 @@ class Ping(object):
 				payload = self.generate_data_payload(filename, data, total_chunks)
 				src, dst = self.get_random_src_dst()
 				current_socket = self.get_socket()
-				Ping.send_one_ping(current_socket, src, dst, icmp_id, payload)
+				Network_drive.send_one_ping(current_socket, src, dst, icmp_id, payload)
 				current_socket.close()
 				icmp_id += 1
 				time.sleep(SEND_DELAY_TIME)
 				
-
-
 	def send_return_home_requests(self, file_name):
 		for i in range(1, HOST_COUNT + 1):
 			dest_ip = "10.0.0." + str(i)
@@ -326,7 +243,7 @@ class Ping(object):
 
 			current_socket = self.get_socket()
 			payload = self.generate_return_home_payload(file_name)
-			Ping.send_one_ping(current_socket, dest_ip, self.ip, 0, payload)
+			Network_drive.send_one_ping(current_socket, dest_ip, self.ip, 0, payload)
 			print("# send retHome to " + dest_ip)
 			current_socket.close()
 			time.sleep(SEND_DELAY_TIME)
@@ -359,12 +276,8 @@ class Ping(object):
 
 	#--------------------------------------------------------------------------
 
-	def run(self, count=None, deadline=None):
-		"""
-		send and receive pings in a loop. Stop if count or until deadline.
-		"""
-		if not self.quiet_output:
-			self.setup_signal_handler()
+	def run(self):
+		self.setup_signal_handler()
 		current_socket = self.get_socket()
 		while True:
 			if select.select([sys.stdin,],[],[],0.0)[0]:
@@ -381,13 +294,12 @@ class Ping(object):
 		current_socket.close()
 
 	def do(self, current_socket):
-		# current_socket = self.get_socket()
 		getPacket, icmp_header, payload = self.receive_one_ping(current_socket)
 
 		if getPacket:
 			self.parse_payload(payload)
 			if self.packet.kind == HOME_RETURN_PAYLOAD_KEYWORD:
-				print("recieved home return: home_ip: " + self.packet.src_ip + ", file_name: " + self.packet.file_name)
+				# print("recieved home return: home_ip: " + self.packet.src_ip + ", file_name: " + self.packet.file_name)
 				self.add_to_return_home_requests(
 					src_ip=self.packet.src_ip,
 					filename=self.packet.file_name
@@ -400,23 +312,17 @@ class Ping(object):
 						print("collecting packet, file_name: " + downloading_obj.file_name)
 						self.collect_packet(downloading_obj, payload, icmp_header["packet_id"])
 				elif req_obj:
-					Ping.send_one_ping(current_socket, req_obj.src_ip, self.ip,
+					Network_drive.send_one_ping(current_socket, req_obj.src_ip, self.ip,
 							icmp_header["packet_id"], payload)
 					print("send packet to home: home_ip: " + req_obj.src_ip + ", file_name: " + req_obj.file_name)
 
 				else:
 					self.resend_ICMP(current_socket, icmp_header, payload)
-		# if getPacket:
-		# 	self.resend_ICMP(current_socket, icmp_header, payload)
-
-		# current_socket.close()
-
 
 	# send an ICMP ECHO_REQUEST packet
 	@classmethod
 	def send_one_ping(cls, current_socket, src, dst, icmp_packet_id, payload):
-		
-		print("SEND : " + src[-1] + " -> " + dst[-1] + " Payload : " + payload)
+		# print("SEND : " + src[-1] + " -> " + dst[-1] + " Payload : " + payload)
 
 		#Create a new IP packet and set its source and destination IP addresses
 		ip = ImpactPacket.IP()
@@ -449,19 +355,12 @@ class Ping(object):
 			current_socket.close()
 			return
 
-		return send_time
-
-
 	def resend_ICMP(self, current_socket, icmp_header, payload):
 		src, dst = self.get_random_src_dst()
-		send_time = Ping.send_one_ping(current_socket, src, dst, icmp_header["packet_id"], payload)
-		return send_time
+		Network_drive.send_one_ping(current_socket, src, dst, icmp_header["packet_id"], payload)
 
 	def receive_one_ping(self, current_socket):
-		
-		timeout = self.timeout / 1000.0
-
-		# while True: # Loop while waiting for packet or timeout
+		timeout = 1
 		select_start = default_timer()
 		inputready, outputready, exceptready = select.select([current_socket], [], [], timeout)
 		
@@ -501,8 +400,5 @@ class Ping(object):
 		# XXX: Why not ip = address[0] ???
 		return True, icmp_header, packet_data[28:]
 
-def ping(source, hostname, timeout=1000, count=3, packet_size=55, *args, **kwargs):
-	p = Ping(source, hostname, timeout, packet_size, *args, **kwargs)
-	return p.run(count)
-
-# ping("10.0.0.1", "10.0.0.2")
+nd = Network_drive()
+nd.run()
