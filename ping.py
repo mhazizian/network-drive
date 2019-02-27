@@ -17,6 +17,7 @@ import socket,sys
 from impacket import ImpactPacket
 from subprocess import check_output
 from random import randint
+import threading
 
 HOST_COUNT = 4
 HOME_RETURN_PAYLOAD_KEYWORD = "RET_HOME"
@@ -32,7 +33,7 @@ QUIT_COMMAND_KEYWORD = "quit"
 REPLY_TYPE = 0
 REQUEST_TYPE = 8
 
-PAYLOAD_SIZE = 512
+PAYLOAD_SIZE = 12
 MAX_NUMBER_OF_CHUNKS_PER_FILE = 10
 
 class Return_home_request:
@@ -205,6 +206,20 @@ class Ping(object):
 
 	#--------------------------------------------------------------------------
 
+	def get_random_src_dst(self):
+		src = self.ip
+		while (src == self.ip):
+			src = "10.0.0." + str(randint(1, HOST_COUNT))
+		
+		dst = src
+		while(dst == src or dst == self.ip):
+			dst = "10.0.0." + str(randint(1, HOST_COUNT))
+
+		return src, dst
+			
+
+	#--------------------------------------------------------------------------
+
 	def get_socket(self):
 		try: 
 			current_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
@@ -262,14 +277,46 @@ class Ping(object):
 			downloading_obj.received_payloads[int(icmp_id)] = data
 			if self.packet.total_chunks == downloading_obj.number_of_caught_packets:
 				# save file to disk
-				for ob in downloading_obj.received_payloads:
-					print(ob)
+				f= open(self.packet.file_name, "w+")
+				for data in downloading_obj.received_payloads:
+					if data == '':
+						continue
+					f.write(data)
+				f.close()
 				self.downloading_files.remove(downloading_obj)
 
 	#--------------------------------------------------------------------------
 
 	def download_file(self, file_name):
 		self.downloading_files.append(Download_request(file_name))
+		worker = threading.Thread(target=self.send_return_home_requests, args=(file_name, ))
+		worker.start()
+
+		
+
+	def upload_file(self, filename):
+		icmp_id = 0
+		file_size = os.path.getsize(filename)
+		total_chunks = file_size / PAYLOAD_SIZE
+		if (file_size % PAYLOAD_SIZE) != 0:
+			total_chunks += 1
+		
+		with open(filename, "r") as file:
+			while True:
+				data = file.read(PAYLOAD_SIZE)
+				if data == '':
+					break
+				payload = self.generate_data_payload(filename, data, total_chunks)
+				src, dst = self.get_random_src_dst()
+				current_socket = self.get_socket()
+				Ping.send_one_ping(current_socket, src, dst, icmp_id, payload)
+				current_socket.close()
+				icmp_id += 1
+				time.sleep(1)
+				
+
+
+	def send_return_home_requests(self, file_name):
 		for i in range(1, HOST_COUNT + 1):
 			dest_ip = "10.0.0." + str(i)
 			if dest_ip == self.ip:
@@ -280,12 +327,7 @@ class Ping(object):
 			Ping.send_one_ping(current_socket, dest_ip, self.ip, 0, payload)
 			print("# send retHome to " + dest_ip)
 			current_socket.close()
-			# time.sleep(0.05)
-
-	def upload_file(filename):
-		pass
-		# with open(filename, "r") as file:
-		# 	payload = file.read(PAYLOAD_SIZE)
+			time.sleep(1)
 
 	#--------------------------------------------------------------------------
 
@@ -326,7 +368,8 @@ class Ping(object):
 			if select.select([sys.stdin,],[],[],0.0)[0]:
 				command = raw_input().split(' ')
 				if command[0] == SEND_COMMAND_KEYWORD:
-					pass
+					worker = threading.Thread(target=self.upload_file, args=(command[1], ))
+					worker.start()
 				elif command[0] == GET_COMMAND_KEYWORD:
 					self.download_file(command[1])
 				elif command[0] == QUIT_COMMAND_KEYWORD:
@@ -404,14 +447,7 @@ class Ping(object):
 
 
 	def resend_ICMP(self, current_socket, icmp_header, payload):
-		src = self.ip
-		while (src == self.ip):
-			src = "10.0.0." + str(randint(1, HOST_COUNT))
-		
-		dst = src
-		while(dst == src or dst == self.ip):
-			dst = "10.0.0." + str(randint(1, HOST_COUNT))
-			
+		src, dst = self.get_random_src_dst()
 		send_time = Ping.send_one_ping(current_socket, src, dst, icmp_header["packet_id"], payload)
 		return send_time
 
@@ -453,9 +489,6 @@ class Ping(object):
 			struct_format="!BBHHHBBHII",
 			data=packet_data[:20]
 		)
-		
-
-
 
 		packet_size = len(packet_data) - 28
 		ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
