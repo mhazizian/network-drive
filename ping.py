@@ -30,6 +30,9 @@ SEND_COMMAND_KEYWORD = "send"
 GET_COMMAND_KEYWORD = "get"
 QUIT_COMMAND_KEYWORD = "quit"
 
+REPLY_TYPE = 0
+REQUEST_TYPE = 8
+
 PAYLOAD_SIZE = 512
 MAX_NUMBER_OF_CHUNKS_PER_FILE = 10
 
@@ -305,7 +308,7 @@ class Ping(object):
 		if not self.quiet_output:
 			self.setup_signal_handler()
 
-		while True and counter < 4:
+		while True and counter < 3:
 			if select.select([sys.stdin,],[],[],0.0)[0]:
 				command = raw_input().split(' ')
 				if command[0] == SEND_COMMAND_KEYWORD:
@@ -393,7 +396,7 @@ class Ping(object):
 			src = "10.0.0." + str(randint(1, HOST_COUNT))
 		
 		dst = src
-		while(dst == src):
+		while(dst == src or dst == self.ip):
 			dst = "10.0.0." + str(randint(1, HOST_COUNT))
 			
 		# print "resending: " + src + "->" + dst
@@ -442,12 +445,18 @@ class Ping(object):
 				data=packet_data[:20]
 			)
 			
-			print "RECEIVED : (type : " + str(icmp_header["type"]) + ")" + str(ip_header["src_ip"] % 10) + " -> " + str(ip_header["dest_ip"] % 10) + " " + packet_data[28:]
+			icmpType = ""
+			if (icmp_header["type"] == REPLY_TYPE):
+				icmpType = "Reply"
+			else:
+				icmpType = "Request"
+
+			print "RECEIVED : (type : " + icmpType + ")" + str(ip_header["src_ip"] % 10) + " -> " + str(ip_header["dest_ip"] % 10) + " " + packet_data[28:]
 
 			# Drop the packet
-			# if (self.ip == "10.0.0." + str(ip_header["dest_ip"] % 10) and counter != 0) :
-			# 	print "packet dropped!"
-			# 	return False, None, None
+			if (icmp_header["type"] == REQUEST_TYPE and counter != 0 and self.ip[-1] != "1"):
+				print "packet dropped!"
+				return False, None, None
 
 			packet_size = len(packet_data) - 28
 			ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
