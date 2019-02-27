@@ -20,15 +20,17 @@ class MyTopo( Topo ):
         hosts.append(self.addHost( 'h4' ))
 
         switches.append(self.addSwitch( 's1' ))
-        switches.append(self.addSwitch( 's2' ))
+        # switches.append(self.addSwitch( 's2' ))
 
         # Add links
-        self.addLink(hosts[0], switches[0], cls=TCLink, delay='10ms')
-        self.addLink(hosts[1], switches[0], cls=TCLink, delay='10ms')
+        self.addLink(hosts[0], switches[0], cls=TCLink, delay='10ms', max_queue_size=1000)
+        self.addLink(hosts[1], switches[0], cls=TCLink, delay='10ms', max_queue_size=1000)
+        self.addLink(hosts[2], switches[0], cls=TCLink, delay='10ms', max_queue_size=1000)
+        self.addLink(hosts[3], switches[0], cls=TCLink, delay='10ms', max_queue_size=1000)
 
-        self.addLink(switches[0], switches[1], cls=TCLink, delay='10ms')
+        # self.addLink(switches[0], switches[1], cls=TCLink, delay='40ms', max_queue_size=1000)
 
-        self.addLink(hosts[2], switches[1], cls=TCLink, delay='10ms')
-        self.addLink(hosts[3], switches[1], cls=TCLink, delay='10ms')
+        # self.addLink(hosts[2], switches[1], cls=TCLink, delay='40ms', max_queue_size=1000)
+        # self.addLink(hosts[3], switches[0], cls=TCLink, delay='40ms', max_queue_size=1000)
 
 topos = { 'mytopo': ( lambda: MyTopo() ) }
