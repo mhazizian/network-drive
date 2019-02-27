@@ -33,8 +33,9 @@ QUIT_COMMAND_KEYWORD = "quit"
 REPLY_TYPE = 0
 REQUEST_TYPE = 8
 
-PAYLOAD_SIZE = 12
-MAX_NUMBER_OF_CHUNKS_PER_FILE = 10
+PAYLOAD_SIZE = 1
+MAX_NUMBER_OF_CHUNKS_PER_FILE = 100
+SEND_DELAY_TIME = 0.05
 
 class Return_home_request:
 	def __init__(self, src_ip, file_name):
@@ -284,6 +285,7 @@ class Ping(object):
 					f.write(data)
 				f.close()
 				self.downloading_files.remove(downloading_obj)
+				print "### file " + self.packet.file_name + " is saved."
 
 	#--------------------------------------------------------------------------
 
@@ -312,7 +314,7 @@ class Ping(object):
 				Ping.send_one_ping(current_socket, src, dst, icmp_id, payload)
 				current_socket.close()
 				icmp_id += 1
-				time.sleep(1)
+				time.sleep(SEND_DELAY_TIME)
 				
 
 
@@ -327,7 +329,7 @@ class Ping(object):
 			Ping.send_one_ping(current_socket, dest_ip, self.ip, 0, payload)
 			print("# send retHome to " + dest_ip)
 			current_socket.close()
-			time.sleep(1)
+			time.sleep(SEND_DELAY_TIME)
 
 	#--------------------------------------------------------------------------
 
@@ -363,7 +365,7 @@ class Ping(object):
 		"""
 		if not self.quiet_output:
 			self.setup_signal_handler()
-
+		current_socket = self.get_socket()
 		while True:
 			if select.select([sys.stdin,],[],[],0.0)[0]:
 				command = raw_input().split(' ')
@@ -374,28 +376,29 @@ class Ping(object):
 					self.download_file(command[1])
 				elif command[0] == QUIT_COMMAND_KEYWORD:
 					break
-				
-			delay = self.do()
+			
+			delay = self.do(current_socket)
+		current_socket.close()
 
-	def do(self):
-		current_socket = self.get_socket()
+	def do(self, current_socket):
+		# current_socket = self.get_socket()
 		getPacket, icmp_header, payload = self.receive_one_ping(current_socket)
 
 		if getPacket:
 			self.parse_payload(payload)
 			if self.packet.kind == HOME_RETURN_PAYLOAD_KEYWORD:
+				print("recieved home return: home_ip: " + self.packet.src_ip + ", file_name: " + self.packet.file_name)
 				self.add_to_return_home_requests(
 					src_ip=self.packet.src_ip,
 					filename=self.packet.file_name
 				)
-				print("recieved home return: home_ip: " + self.packet.src_ip + ", file_name: " + self.packet.file_name)
 			elif self.packet.kind == DATA_PAYLOAD_KEYWORD:
 				downloading_obj = self.check_if_packet_must_be_collected(self.packet.file_name)
 				req_obj = self.check_if_data_requested(self.packet.file_name)
 
 				if downloading_obj:
-						self.collect_packet(downloading_obj, payload, icmp_header["packet_id"])
 						print("collecting packet, file_name: " + downloading_obj.file_name)
+						self.collect_packet(downloading_obj, payload, icmp_header["packet_id"])
 				elif req_obj:
 					Ping.send_one_ping(current_socket, req_obj.src_ip, self.ip,
 							icmp_header["packet_id"], payload)
@@ -403,7 +406,10 @@ class Ping(object):
 
 				else:
 					self.resend_ICMP(current_socket, icmp_header, payload)
-		current_socket.close()
+		# if getPacket:
+		# 	self.resend_ICMP(current_socket, icmp_header, payload)
+
+		# current_socket.close()
 
 
 	# send an ICMP ECHO_REQUEST packet
