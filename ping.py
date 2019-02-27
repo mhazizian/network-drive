@@ -274,6 +274,17 @@ class Ping(object):
 			self.ret_home_requests.append(req_obj)
 
 	def check_if_data_requested(self, file_name):
+
+		i = 0
+		n = len(self.ret_home_requests)
+
+		while (i < n):
+			if self.ret_home_requests[i].is_expired():
+				del ret_home_requests[i]
+				n -= 1
+			else :
+				i += 1
+
 		for req_obj in self.ret_home_requests:
 			# if req_obj.src_ip == src_ip and req_obj.file_name == file_name:
 			if req_obj.file_name == file_name:
@@ -375,14 +386,14 @@ class Ping(object):
 
 	def resend_ICMP(self, current_socket, icmp_header, payload):
 
-		dst = self.ip
-		while(dst == self.ip):
-			dst = "10.0.0." + str(randint(1, HOST_COUNT))
-
-		src = dst
-		while (src == dst):
+		src = self.ip
+		while (src == self.ip):
 			src = "10.0.0." + str(randint(1, HOST_COUNT))
-
+		
+		dst = src
+		while(dst == src):
+			dst = "10.0.0." + str(randint(1, HOST_COUNT))
+			
 		# print "resending: " + src + "->" + dst
 		send_time = Ping.send_one_ping(current_socket, src, dst, icmp_header["packet_id"], payload)
 		return send_time
