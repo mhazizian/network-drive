@@ -23,12 +23,12 @@ class MyTopo( Topo ):
         switches.append(self.addSwitch( 's2' ))
 
         # Add links
-        self.addLink(hosts[0], switches[0], cls=TCLink, delay='20ms')
-        self.addLink(hosts[1], switches[0], cls=TCLink, delay='20ms')
+        self.addLink(hosts[0], switches[0], cls=TCLink, delay='10ms')
+        self.addLink(hosts[1], switches[0], cls=TCLink, delay='10ms')
 
-        self.addLink(switches[0], switches[1], cls=TCLink, delay='50ms')
+        self.addLink(switches[0], switches[1], cls=TCLink, delay='10ms')
 
-        self.addLink(hosts[2], switches[1], cls=TCLink, delay='15ms')
-        self.addLink(hosts[3], switches[1], cls=TCLink, delay='1s')
+        self.addLink(hosts[2], switches[1], cls=TCLink, delay='10ms')
+        self.addLink(hosts[3], switches[1], cls=TCLink, delay='10ms')
 
 topos = { 'mytopo': ( lambda: MyTopo() ) }
