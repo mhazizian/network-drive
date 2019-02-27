@@ -16,7 +16,6 @@ import time
 import socket,sys
 from impacket import ImpactPacket
 from subprocess import check_output
-# import ifaddr
 from random import randint
 
 HOST_COUNT = 4
@@ -36,16 +35,14 @@ REQUEST_TYPE = 8
 PAYLOAD_SIZE = 512
 MAX_NUMBER_OF_CHUNKS_PER_FILE = 10
 
-counter = 0
-
 class Return_home_request:
 	def __init__(self, src_ip, file_name):
 		self.src_ip = src_ip
 		self.file_name = file_name
-		self.request_time = int(time.time())
+		self.request_time = int(default_timer())
 
 	def is_expired(self):
-		return int(time.time()) - self.request_time > HOME_RETURN_REQUEST_TIMEOUT
+		return int(default_timer()) - self.request_time > HOME_RETURN_REQUEST_TIMEOUT
 
 class Download_request:
 	def __init__(self, file_name, ):
@@ -280,7 +277,7 @@ class Ping(object):
 
 		while (i < n):
 			if self.ret_home_requests[i].is_expired():
-				del ret_home_requests[i]
+				del self.ret_home_requests[i]
 				n -= 1
 			else :
 				i += 1
@@ -300,15 +297,13 @@ class Ping(object):
 	#--------------------------------------------------------------------------
 
 	def run(self, count=None, deadline=None):
-		global counter
-
 		"""
 		send and receive pings in a loop. Stop if count or until deadline.
 		"""
 		if not self.quiet_output:
 			self.setup_signal_handler()
 
-		while True and counter < 3:
+		while True:
 			if select.select([sys.stdin,],[],[],0.0)[0]:
 				command = raw_input().split(' ')
 				if command[0] == SEND_COMMAND_KEYWORD:
@@ -331,17 +326,17 @@ class Ping(object):
 					src_ip=parsed_payload[1],
 					filename=parsed_payload[2]
 				)
-				print("recieved home return.")
+				print("recieved home return: home_ip: " + parsed_payload[1] + ", file_name: " + parsed_payload[2])
 			elif parsed_payload[0] == DATA_PAYLOAD_KEYWORD:
 				downloading_obj = self.check_if_data_is_collected(parsed_payload[2])
 				if downloading_obj:
-						print("collecting packet.")
+						print("collecting packet, file_name: " + downloading_obj.file_name)
 				else:
 					req_obj = self.check_if_data_requested(parsed_payload[2])
 					if req_obj:
 						Ping.send_one_ping(current_socket, req_obj.src_ip, self.ip,
 								icmp_header["packet_id"], payload)
-						print("send packet to home.")
+						print("send packet to home: home_ip: " + req_obj.src_ip + ", file_name: " + req_obj.file_name)
 					
 					else:
 						self.resend_ICMP(current_socket, icmp_header, payload)
@@ -389,8 +384,6 @@ class Ping(object):
 
 
 	def resend_ICMP(self, current_socket, icmp_header, payload):
-		global counter
-
 		src = self.ip
 		while (src == self.ip):
 			src = "10.0.0." + str(randint(1, HOST_COUNT))
@@ -399,13 +392,8 @@ class Ping(object):
 		while(dst == src or dst == self.ip):
 			dst = "10.0.0." + str(randint(1, HOST_COUNT))
 			
-		# print "resending: " + src + "->" + dst
-		counter += 1
-		send_time = Ping.send_one_ping(current_socket, src, dst, icmp_header["packet_id"], payload + " " + self.ip + " " + str(counter) + " *")
+		send_time = Ping.send_one_ping(current_socket, src, dst, icmp_header["packet_id"], payload)
 		return send_time
-		
-	# Receive the ping from the socket. 
-	#timeout = in ms		
 
 	def receive_one_ping(self, current_socket):
 		
@@ -430,42 +418,29 @@ class Ping(object):
 			data=packet_data[20:28]
 		)
 
+		icmpType = ""
+		if (icmp_header["type"] != REPLY_TYPE):
+			return False, None, None
+
 		receive_time = default_timer()
 
-		# if icmp_header["packet_id"] == self.own_id: # Our packet!!!
-		# it should not be our packet!!!Why?
-		if True:
-			ip_header = self.header2dict(
-				names=[
-					"version", "type", "length",
-					"id", "flags", "ttl", "protocol",
-					"checksum", "src_ip", "dest_ip"
-				],
-				struct_format="!BBHHHBBHII",
-				data=packet_data[:20]
-			)
-			
-			icmpType = ""
-			if (icmp_header["type"] == REPLY_TYPE):
-				icmpType = "Reply"
-			else:
-				icmpType = "Request"
+		ip_header = self.header2dict(
+			names=[
+				"version", "type", "length",
+				"id", "flags", "ttl", "protocol",
+				"checksum", "src_ip", "dest_ip"
+			],
+			struct_format="!BBHHHBBHII",
+			data=packet_data[:20]
+		)
+		
 
-			print "RECEIVED : (type : " + icmpType + ")" + str(ip_header["src_ip"] % 10) + " -> " + str(ip_header["dest_ip"] % 10) + " " + packet_data[28:]
 
-			# Drop the packet
-			if (icmp_header["type"] == REQUEST_TYPE and counter != 0 and self.ip[-1] != "1"):
-				print "packet dropped!"
-				return False, None, None
 
-			packet_size = len(packet_data) - 28
-			ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
-			# XXX: Why not ip = address[0] ???
-			return True, icmp_header, packet_data[28:]
-
-		# timeout = timeout - select_duration
-		# if timeout <= 0:
-		return False, None, None
+		packet_size = len(packet_data) - 28
+		ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
+		# XXX: Why not ip = address[0] ???
+		return True, icmp_header, packet_data[28:]
 
 def ping(source, hostname, timeout=1000, count=3, packet_size=55, *args, **kwargs):
 	p = Ping(source, hostname, timeout, packet_size, *args, **kwargs)
